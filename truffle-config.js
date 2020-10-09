@@ -1,3 +1,4 @@
+const { projectId, mnemonic } = require('./secrets.json');
 var HDWalletProvider = require("truffle-hdwallet-provider");
 
 module.exports = {
@@ -15,7 +16,7 @@ module.exports = {
   },
   ropsten: {
     provider: function() {
-      return new HDWalletProvider("INSERT YOUR MNEMONIC HERE", "INSERT YOUR INFURA HERE ROPSTEN URL HERE")
+      return new HDWalletProvider(mnemonic, `https://ropsten.infura.io/v3/${projectId}`)
     },
     network_id: 3,
     gas: 7000000      //make sure this gas allocation isn't over 4M, which is the max
