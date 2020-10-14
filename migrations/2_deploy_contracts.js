@@ -14,7 +14,7 @@ module.exports = async function(deployer, _network, addresses) {
     */
 
     // Get WETH contact in ropsten
-    weth = await WETH.at('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2');
+    weth = await WETH.at('0xc778417E063141139Fce010982780140Aa0cD5Ab');
 
     // Deploy Factory
     await deployer.deploy(Factory, addresses[0]);
