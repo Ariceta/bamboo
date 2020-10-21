@@ -1,59 +1,38 @@
+// SPDX-License-Identifier: MIT
+
 pragma solidity 0.6.12;
 
-import './ERC20.sol';
-import './Ownable.sol';
+import "./ERC20.sol";
+import "./Ownable.sol";
+import "./SafeMath.sol";
 
-
-// BambooToken with Governance.
+//BambooToken with Governance
 contract BambooToken is ERC20("BambooDEFI", "BAMBOO"), Ownable {
+    using SafeMath for uint256;
 
-    
-    /// @notice Creates `_amount` token to `_to`. Must only be called by the owner (MasterChef).
+    event Minted(address indexed minter, address indexed receiver, uint mintAmount);
+    event Burned(address indexed burner, uint burnAmount);
+
     function mint(address _to, uint256 _amount) public onlyOwner {
         _mint(_to, _amount);
-        _moveDelegates(address(0), _delegates[_to], _amount);
+        emit Minted(owner(), _to, _amount);
     }
 
-
-    /**
-     * @dev Destroys `amount` tokens from the caller.
-     *
-     * See {ERC20-_burn}.
-     */
-    function burn(uint256 amount) public virtual {
-        _burn(_msgSender(), amount);
+    function burn(uint256 _amount) public {
+        _burn(msg.sender, _amount);
+        emit Burned(msg.sender, _amount);
     }
 
-    /**
-     * @dev Destroys `amount` tokens from `account`, deducting from the caller's
-     * allowance.
-     *
-     * See {ERC20-_burn} and {ERC20-allowance}.
-     *
-     * Requirements:
-     *
-     * - the caller must have allowance for ``accounts``'s tokens of at least
-     * `amount`.
-     */
-    function burnFrom(address account, uint256 amount) public virtual {
-        uint256 decreasedAllowance = allowance(account, _msgSender()).sub(amount, "ERC20: burn amount exceeds allowance");
-
-        _approve(account, _msgSender(), decreasedAllowance);
-        _burn(account, amount);
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal override virtual { 
+        _moveDelegates(_delegates[from], _delegates[to], amount);
     }
 
-    // Copied and modified from YAM code:
-    // https://github.com/yam-finance/yam-protocol/blob/master/contracts/token/YAMGovernanceStorage.sol
-    // https://github.com/yam-finance/yam-protocol/blob/master/contracts/token/YAMGovernance.sol
-    // Which is copied and modified from COMPOUND:
-    // https://github.com/compound-finance/compound-protocol/blob/master/contracts/Governance/Comp.sol
-
-    /// @notice A record of each accounts delegate
+    /// @dev A record of each accounts delegate
     mapping (address => address) internal _delegates;
 
     /// @notice A checkpoint for marking number of votes from a given block
     struct Checkpoint {
-        uint32 fromBlock;
+        uint256 fromBlock;
         uint256 votes;
     }
 
@@ -171,7 +150,7 @@ contract BambooToken is ERC20("BambooDEFI", "BAMBOO"), Ownable {
      * @param blockNumber The block number to get the vote balance at
      * @return The number of votes the account had as of the given block
      */
-    function getPriorVotes(address account, uint blockNumber)
+    function getPriorVotes(address account, uint256 blockNumber)
         external
         view
         returns (uint256)
@@ -249,7 +228,7 @@ contract BambooToken is ERC20("BambooDEFI", "BAMBOO"), Ownable {
     )
         internal
     {
-        uint32 blockNumber = safe32(block.number, "SUSHI::_writeCheckpoint: block number exceeds 32 bits");
+        uint32 blockNumber = safe32(block.number, "BAMBOO::_writeCheckpoint: block number exceeds 32 bits");
 
         if (nCheckpoints > 0 && checkpoints[delegatee][nCheckpoints - 1].fromBlock == blockNumber) {
             checkpoints[delegatee][nCheckpoints - 1].votes = newVotes;

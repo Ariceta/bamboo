@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 pragma solidity 0.6.12;
 
 import './Context.sol';
@@ -16,6 +18,7 @@ import './Context.sol';
  */
 contract Ownable is Context {
     address private _owner;
+    address private proposedOwner;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -63,5 +66,28 @@ contract Ownable is Context {
         require(newOwner != address(0), "Ownable: new owner is the zero address");
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
+    }
+
+    /**
+     * @dev Proposes a new owner of the contract to a new account (`newOwner`).
+     * Can only be called by the current owner.
+     */
+    function proposeOwner(address _proposedOwner) public onlyOwner
+    {
+        require(msg.sender != _proposedOwner, "ERROR_CALLER_ALREADY_OWNER");
+        proposedOwner = _proposedOwner;
+    }
+
+    /**
+     * @dev If the address has been proposed, it can accept the ownership,
+     * Can only be called by the current proposed owner.
+     */
+
+    function claimOwnership() public
+    {
+        require(msg.sender == proposedOwner, "ERROR_NOT_PROPOSED_OWNER");
+        emit OwnershipTransferred(_owner, proposedOwner);
+        _owner = proposedOwner;
+        proposedOwner = address(0);
     }
 }
