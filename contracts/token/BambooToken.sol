@@ -253,15 +253,6 @@ contract BambooToken is ERC20("BambooDEFI", "BAMBOO"), Ownable {
         emit DelegateVotesChanged(delegatee, oldVotes, newVotes);
     }
 
-    function safe32(uint256 n, string memory errorMessage)
-        internal
-        pure
-        returns (uint32)
-    {
-        require(n < 2**32, errorMessage);
-        return uint32(n);
-    }
-
     function getChainId() internal pure returns (uint256) {
         uint256 chainId;
         assembly {
