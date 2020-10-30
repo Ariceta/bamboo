@@ -4,7 +4,7 @@ pragma solidity 0.6.12;
 import "./IERC20.sol";
 import "./SafeERC20.sol";
 import "./EnumerableSet.sol";
-import "./BambooToken.sol";
+import "./token/BambooToken.sol";
 
 
 interface IMigratorChef {
