@@ -1,6 +1,6 @@
 pragma solidity =0.6.12;
 
-import './IUniswapV2Factory.sol';
+import './interfaces/IUniswapV2Factory.sol';
 import './UniswapV2Pair.sol';
 
 
