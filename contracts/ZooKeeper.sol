@@ -164,7 +164,7 @@ contract ZooKeeper is Ownable {
     }
 
     // Set the migrator contract. Can only be called by the owner.
-    function setMigrator(IMigratorChef _migrator) public onlyOwner {
+    function setMigrator(IMigratorKeeper _migrator) public onlyOwner {
         migrator = _migrator;
     }
 
@@ -397,8 +397,8 @@ contract ZooKeeper is Ownable {
         uint256 _amount=user.amount;
         user.amount = 0;
         user.rewardDebt = 0;
-        pool.lpToken.safeTransfer(address(msg.sender), user.amount);
-        emit EmergencyWithdraw(msg.sender, _pid, user.amount);
+        pool.lpToken.safeTransfer(address(msg.sender), _amount);
+        emit EmergencyWithdraw(msg.sender, _pid, _amount);
     }
 
     // Return the index of the time reward that can be claimed.
@@ -426,11 +426,11 @@ contract ZooKeeper is Ownable {
         }
     }
 
-    function checkPoolDuplicate ( IERC20 _lpToken ) public {
-         uint256 length = poolInfo . length ;
-         for ( uint256 pid = 0; pid < length ; ++pid ) {
-     require ( poolInfo [ _pid ] . lpToken != _lpToken , " add : existing pool ?" ) ;
-     }
+    function checkPoolDuplicate ( IERC20 _lpToken ) public view{
+        uint256 length = poolInfo.length ;
+        for ( uint256 pid = 0; pid < length ; ++pid ) {
+            require (poolInfo[pid].lpToken != _lpToken , "add: existing pool?");
+        }
     }
 
     // Update dev address by the previous dev.
