@@ -2,7 +2,7 @@ const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const BambooToken = artifacts.require('token/BambooToken');
 const BambooField = artifacts.require('BambooField');
 const ZooKeeper = artifacts.require('ZooKeeper.sol');
-const MockERC20 = artifacts.require('Token1.sol');
+const MockERC20 = artifacts.require('token/MockToken.sol');
 
 
 contract('BambooField', ([alice, bob, carol, dev]) => {

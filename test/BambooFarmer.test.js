@@ -1,6 +1,6 @@
 const BambooToken = artifacts.require('token/BambooToken.sol');
 const BambooFarmer = artifacts.require('BambooFarmer.sol');
-const MockERC20 = artifacts.require('Token1');
+const MockERC20 = artifacts.require('token/MockToken.sol');
 const UniswapV2Pair = artifacts.require('uniswapv2/UniswapV2Pair.sol');
 const UniswapV2Factory = artifacts.require('uniswapv2/UniswapV2Factory.sol');
 
