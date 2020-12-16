@@ -1,6 +1,6 @@
-const Factory = artifacts.require('uniswapv2/UniswapV2Factory.sol');
+const Factory = artifacts.require('uniswapv2/uniswap-factory/UniswapV2Factory.sol');
 const WETH = artifacts.require('weth/WETH.sol');
-const Router = artifacts.require('uniswapv2/UniswapV2Router02.sol')
+const Router = artifacts.require('uniswapv2/uniswap-router/UniswapV2Router02.sol')
 
 
 module.exports = async function (deployer, _network, addresses) {

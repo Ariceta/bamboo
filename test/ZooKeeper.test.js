@@ -228,9 +228,66 @@ contract('ZooKeeper', ([alice, bob, carol, dev, minter]) => {
             assert.equal((await this.bamboo.totalSupply()).toString(), '1005');
 
         });
+        it('should allow to claim the staking bonuses daily', async () => {
+
+            // 100 per block farming rate starting at block 550
+            await time.advanceBlockTo('548');
+            this.panda = await ZooKeeper.new(this.bamboo.address, dev, '100', '550',{ from: alice });
+            await this.bamboo.proposeOwner(this.panda.address);
+            await this.panda.claimToken(this.bamboo.address);
+            // Add a staking reward of x2 at 1000 when staking for 30 days
+            await this.panda.addStakeMultiplier('1000', [10000, 10000, 10000, 20000, 10000, 10000, 10000,
+                10000, 10000, 10000, 10000, 10000]);
+            // Deposit 1000 Bamboo and lock it for 30 days
+            await this.bamboo.approve(this.panda.address, '1000', { from: bob });
+            let receipt = await this.panda.depositBamboo('1000', 2592000, { from: bob });
+            expectEvent(receipt, 'BAMBOODeposit', { user: bob, amount: '1000', lockTime: '2592000' });
+            assert.equal((await this.bamboo.balanceOf(bob)).toString(), '0');
+            assert.equal((await this.bamboo.balanceOf(this.panda.address)).toString(), '1000');
+            // Get the id from the deposit
+            let id = receipt.logs[0].args.id.toString();
+            // 86400, 604800, 1296000, 2592000
+            // Advance a day and withdraw the available bonus.
+            // Reward for a day should be 1000/30 = 33
+            await time.increase(86401);
+            await this.panda.withdrawDailyBamboo(id, { from: bob });
+            assert.equal((await this.bamboo.balanceOf(bob)).toString(), '33');
+            // Deposit should be still locked
+            await expectRevert(this.panda.withdrawBamboo(id, { from: bob }), 'withdrawBamboo: cannot withdraw yet!');
+            // Should not be able to withdraw until another day has passed
+            await time.increase(43200);
+            let receiptA = await this.panda.withdrawDailyBamboo(id, { from: bob });
+            assert.equal(receiptA.logs[0].args.amount.toString(), '0');
+            assert.equal(receiptA.logs[0].args.ndays.toString(), '0');
+            // Advance 15 days and claim rewards 1252800
+            // Reward for a day should be [1000/30] * 15 = 495
+            await time.increase(1296000);
+            await this.panda.withdrawDailyBamboo(id, { from: bob });
+            assert.equal((await this.bamboo.balanceOf(bob)).toString(), '528');
+            // Check what we have remaining to claim in the future
+            // 1000 - 528 = 472
+            let receiptB = await this.panda.pendingStakeBamboo(id, bob);
+            assert.equal(receiptB[0].toString(), '472');
+            // Claimable at the moment should be 0
+            assert.equal(receiptB[1].toString(), '0');
+
+            // Advance the remaining 14 days.
+            await time.increase(1296000);
+           // The 472 should be claimable at the moment
+            let receiptC = await this.panda.pendingStakeBamboo(id, bob);
+            assert.equal(receiptC[0].toString(), '472');
+            assert.equal(receiptC[1].toString(), '472');
+            // Withdraw the deposit and the remaining bonuses
+            await this.panda.withdrawBamboo(id, { from: bob });
+            // 1000*20000/10000 = 2000
+            assert.equal((await this.bamboo.balanceOf(bob)).toString(), '2000');
+            assert.equal((await this.bamboo.balanceOf(this.panda.address)).toString(), '0');
+            assert.equal((await this.bamboo.totalSupply()).toString(), '2000');
+
+        });
         it('should handle multiple deposits independently', async () => {
-            // 100 per block farming rate starting at block 600
-            this.panda = await ZooKeeper.new(this.bamboo.address, dev, '100', '600',{ from: alice });
+            // 100 per block farming rate starting at block 650
+            this.panda = await ZooKeeper.new(this.bamboo.address, dev, '100', '650',{ from: alice });
             await this.bamboo.proposeOwner(this.panda.address);
             await this.panda.claimToken(this.bamboo.address);
             // Add a staking reward
@@ -249,14 +306,16 @@ contract('ZooKeeper', ([alice, bob, carol, dev, minter]) => {
             await time.increase(604800);
             // Withdraw deposit 2
             // 500*20000/10000 = 1000
-            assert.equal((await this.panda.pendingStakeBamboo(id2, bob))[0].toString(), '1000');
+            // pending = 1000 - deposit = 500
+            assert.equal((await this.panda.pendingStakeBamboo(id2, bob))[0].toString(), '500');
             await this.panda.withdrawBamboo(id2, { from: bob });
             assert.equal((await this.bamboo.balanceOf(bob)).toString(), '1000');
             assert.equal((await this.bamboo.totalSupply()).toString(), '1500');
             //
             // Withdraw deposit 1
             // 500*10100/10000 = 505
-            assert.equal((await this.panda.pendingStakeBamboo(id1, bob))[0].toString(), '505');
+            // pending = 505 - deposit = 5
+            assert.equal((await this.panda.pendingStakeBamboo(id1, bob))[0].toString(), '5');
             await this.panda.withdrawBamboo(id1, { from: bob });
             assert.equal((await this.bamboo.balanceOf(bob)).toString(), '1505');
             assert.equal((await this.bamboo.totalSupply()).toString(), '1505');
