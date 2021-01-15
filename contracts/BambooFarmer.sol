@@ -63,7 +63,7 @@ contract BambooFarmer {
         (uint reserveIn, uint reserveOut) = token0 == token ? (reserve0, reserve1) : (reserve1, reserve0);
         // Calculate information required to swap
         uint amountIn = IERC20(token).balanceOf(address(this));
-        uint amountInWithFee = amountIn.mul(997);
+        uint amountInWithFee = amountIn.mul(1000-pair.fee());
         uint numerator = amountInWithFee.mul(reserveOut);
         uint denominator = reserveIn.mul(1000).add(amountInWithFee);
         uint amountOut = numerator / denominator;
@@ -82,7 +82,7 @@ contract BambooFarmer {
         address token0 = pair.token0();
         (uint reserveIn, uint reserveOut) = token0 == weth ? (reserve0, reserve1) : (reserve1, reserve0);
         // Calculate information required to swap
-        uint amountInWithFee = amountIn.mul(997);
+        uint amountInWithFee = amountIn.mul(1000-pair.fee());
         uint numerator = amountInWithFee.mul(reserveOut);
         uint denominator = reserveIn.mul(1000).add(amountInWithFee);
         uint amountOut = numerator / denominator;

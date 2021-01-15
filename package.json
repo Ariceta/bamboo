@@ -9,6 +9,7 @@
     "@truffle/hdwallet-provider": "1.1.0",
     "bn.js": "4.11.0",
     "truffle": "^5.1.49",
-    "truffle-flattener": "1.5.0"
+    "truffle-flattener": "1.5.0",
+    "truffle-hdwallet-provider": "^1.0.17"
   }
 }

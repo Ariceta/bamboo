@@ -26,7 +26,9 @@ contract UniswapV2Factory is IUniswapV2Factory {
         return keccak256(type(UniswapV2Pair).creationCode);
     }
 
-    function createPair(address tokenA, address tokenB) external override returns (address pair) {
+    function createPair(address tokenA, address tokenB, uint fee) external override returns (address pair) {
+        require(msg.sender == feeToSetter, 'UniswapV2: NOT_SETTER');
+        require(fee <= 50, 'UniswapV2: INVALID_FEE');
         require(tokenA != tokenB, 'UniswapV2: IDENTICAL_ADDRESSES');
         (address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         require(token0 != address(0), 'UniswapV2: ZERO_ADDRESS');
@@ -40,6 +42,7 @@ contract UniswapV2Factory is IUniswapV2Factory {
         getPair[token0][token1] = pair;
         getPair[token1][token0] = pair; // populate mapping in the reverse direction
         allPairs.push(pair);
+        UniswapV2Pair(pair).setFee(fee);
         emit PairCreated(token0, token1, pair, allPairs.length);
     }
 
@@ -58,4 +61,11 @@ contract UniswapV2Factory is IUniswapV2Factory {
         feeToSetter = _feeToSetter;
     }
 
+    function setFee(address tokenA, address tokenB, uint fee) external override {
+        require(msg.sender == feeToSetter, 'UniswapV2: NOT_SETTER');
+        require(fee <= 50, 'UniswapV2: INVALID_FEE');
+        require(getPair[tokenA][tokenB] != address(0), 'UniswapV2: NO_PAIR');
+        UniswapV2Pair pair = UniswapV2Pair(getPair[tokenA][tokenB]);
+        pair.setFee(fee);
+    }
 }

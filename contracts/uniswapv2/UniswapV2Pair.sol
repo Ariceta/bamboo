@@ -23,6 +23,7 @@ contract UniswapV2Pair is UniswapV2ERC20 {
     address public factory;
     address public token0;
     address public token1;
+    uint public fee;
 
     uint112 private reserve0;           // uses single storage slot, accessible via getReserves
     uint112 private reserve1;           // uses single storage slot, accessible via getReserves
@@ -72,6 +73,11 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         require(msg.sender == factory, 'UniswapV2: FORBIDDEN'); // sufficient check
         token0 = _token0;
         token1 = _token1;
+    }
+
+    function setFee(uint _fee) external {
+        require(msg.sender == factory, 'UniswapV2: FORBIDDEN'); // sufficient check
+        fee = _fee;
     }
 
     // update reserves and, on the first call per block, price accumulators
@@ -189,8 +195,8 @@ contract UniswapV2Pair is UniswapV2ERC20 {
         uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
         { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
-            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
-            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
+            uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(fee));
+            uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(fee));
             require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
         }
 
