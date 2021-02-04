@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GNU
 
 /**
  *Submitted for verification at Etherscan.io on 2017-12-12
@@ -18,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pragma solidity 0.6.12;
+pragma solidity ^0.7.0;
 
 contract WETH {
     string public name     = "Wrapped Ether";
@@ -36,10 +37,12 @@ contract WETH {
     receive() external payable {
         deposit();
     }
+
     function deposit() public payable {
         balanceOf[msg.sender] += msg.value;
         emit Deposit(msg.sender, msg.value);
     }
+
     function withdraw(uint wad) public {
         require(balanceOf[msg.sender] >= wad);
         balanceOf[msg.sender] -= wad;

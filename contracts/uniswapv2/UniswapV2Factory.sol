@@ -1,4 +1,6 @@
-pragma solidity =0.6.12;
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+pragma solidity ^0.7.0;
 
 import './interfaces/IUniswapV2Factory.sol';
 import './UniswapV2Pair.sol';
@@ -12,9 +14,7 @@ contract UniswapV2Factory is IUniswapV2Factory {
     mapping(address => mapping(address => address)) public override getPair;
     address[] public override allPairs;
 
-    event PairCreated(address indexed token0, address indexed token1, address pair, uint);
-
-    constructor(address _feeToSetter) public {
+    constructor(address _feeToSetter) {
         feeToSetter = _feeToSetter;
     }
 
@@ -64,8 +64,9 @@ contract UniswapV2Factory is IUniswapV2Factory {
     function setFee(address tokenA, address tokenB, uint fee) external override {
         require(msg.sender == feeToSetter, 'UniswapV2: NOT_SETTER');
         require(fee <= 50, 'UniswapV2: INVALID_FEE');
-        require(getPair[tokenA][tokenB] != address(0), 'UniswapV2: NO_PAIR');
-        UniswapV2Pair pair = UniswapV2Pair(getPair[tokenA][tokenB]);
+        address pairAddr = getPair[tokenA][tokenB];
+        require(pairAddr != address(0), 'UniswapV2: NO_PAIR');
+        UniswapV2Pair pair = UniswapV2Pair(pairAddr);
         pair.setFee(fee);
     }
 }

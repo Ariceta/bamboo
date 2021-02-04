@@ -12,7 +12,6 @@ module.exports = async function (deployer, _network, addresses) {
     await deployer.deploy(
         Raindrop,
         bamboo.address,
-        9
     );
     const raindrop = await Raindrop.deployed();
     console.log(raindrop.address);

@@ -23,7 +23,7 @@ module.exports = async function (deployer, _network, addresses) {
         ZooKeeper,
         bamboo.address,
         addresses[0],
-        100,
+        web3.utils.toWei('100'),
         1
     );
     const zooKeeper = await ZooKeeper.deployed();

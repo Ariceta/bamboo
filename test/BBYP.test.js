@@ -2,17 +2,17 @@ const { expectRevert, expectEvent, time } = require('@openzeppelin/test-helpers'
 const BambooToken = artifacts.require('token/BambooToken.sol');
 const BBYP = artifacts.require('BBYP.sol');
 
-contract('BBYP', ([alice, bob, carol]) => {
+contract('BBYP', ([alice, bob, carol, dev]) => {
     beforeEach(async () => {
         this.bamboo = await BambooToken.new({ from: alice });
     });
 
     it('should set correct state variables', async () => {
-        this.biglottery = await BBYP.new(this.bamboo.address, { from: alice });
+        this.biglottery = await BBYP.new(this.bamboo.address, { from: dev });
         const bamboo = await this.biglottery.bamboo();
         const owner = await this.biglottery.owner();
         assert.equal(bamboo.toString(), this.bamboo.address);
-        assert.equal(owner.toString(), alice);
+        assert.equal(owner.toString(), dev);
     });
 
     it('should allow owner to change variables and start the contract', async () => {
@@ -33,8 +33,8 @@ contract('BBYP', ([alice, bob, carol]) => {
 
     context('With the lottery being used', () => {
         beforeEach(async () => {
-            this.biglottery = await BBYP.new(this.bamboo.address, { from: alice });
-            await this.biglottery.setTicketPrice('500');
+            this.biglottery = await BBYP.new(this.bamboo.address, { from: dev });
+            await this.biglottery.setTicketPrice('500', { from: dev });
             await this.bamboo.mint(bob, '10000');
             await this.bamboo.mint(alice, '20000');
             await this.bamboo.mint(carol, '10000');
@@ -45,7 +45,7 @@ contract('BBYP', ([alice, bob, carol]) => {
 
         it('should allow to buy tickets by burning bamboo', async () => {
             let seed = web3.utils.sha3(""+Math.random());
-            await this.biglottery.beginLottery(seed,{ from: alice });
+            await this.biglottery.beginLottery(seed,{ from: dev });
             // Anyone should be able to buy tickets if they can afford it
             await this.biglottery.buyTickets(1,true, { from: alice });
             await expectRevert(this.biglottery.buyTickets(21,true,  { from: bob }), 'buyTickets: not enough bamboo!');
@@ -67,16 +67,16 @@ contract('BBYP', ([alice, bob, carol]) => {
             // 32 characters of seed + 32 bits of right padding
             let seed = web3.utils.padRight(web3.utils.randomHex(16), 64);
             // Padding of address
-            let addr = web3.utils.padLeft(alice, 64);
+            let addr = web3.utils.padLeft(dev, 64);
             let hseed = web3.utils.soliditySha3(addr,seed);
 
-            await this.biglottery.beginLottery(hseed,{ from: alice });
+            await this.biglottery.beginLottery(hseed,{ from: dev });
 
             await this.biglottery.buyTickets(20,false, { from: carol });
             await this.biglottery.buyTickets(20,true, { from: bob });
             await this.biglottery.buyTickets(20,false, { from: alice });
 
-            // Owner deposits to the prize pool
+            // Anyone deposit to the prize pool
             await this.biglottery.addToPool('10000', {from: alice});
             assert.equal((await this.bamboo.balanceOf(alice)).toString(), '0');
             // The only bamboo kept by the contract should be the prizePool
@@ -89,13 +89,13 @@ contract('BBYP', ([alice, bob, carol]) => {
 
             assert.equal((await this.biglottery.commited()).toString(), 'true');
             // Some blocks need to pass after commit
-            await expectRevert(this.biglottery.revealWinner(seed, {from:alice}), 'revealWinner: wait for a block to pass');
+            await expectRevert(this.biglottery.revealWinner(seed, {from:dev}), 'revealWinner: wait for a block to pass');
 
             // Owner needs to reveal the seed.
-            await expectRevert(this.biglottery.revealWinner(seed, { from: bob }), 'Ownable: caller is not the owner.');
+            await expectRevert(this.biglottery.revealWinner(seed, { from: alice }), 'Ownable: caller is not the owner.');
 
             await time.advanceBlockTo('102');
-            let receipt = await this.biglottery.revealWinner(seed, {from:alice});
+            let receipt = await this.biglottery.revealWinner(seed, {from:dev});
             expectEvent(receipt, 'Winner');
             assert.equal((await this.bamboo.balanceOf(this.biglottery.address)).toString(), '0');
 
@@ -104,11 +104,11 @@ contract('BBYP', ([alice, bob, carol]) => {
             await expectRevert(this.biglottery.buyTickets(3, 'false'), 'buyTickets: lottery has not started yet');
 
             // Cannot use the same seed
-            await expectRevert(this.biglottery.beginLottery(hseed,{ from: alice }), 'beginLottery: already used seed');
+            await expectRevert(this.biglottery.beginLottery(hseed,{ from: dev }), 'beginLottery: already used seed');
             seed = web3.utils.padRight(web3.utils.randomHex(16), 64);
             addr = web3.utils.padLeft(alice, 64);
             hseed = web3.utils.soliditySha3(addr,seed);
-            await this.biglottery.beginLottery(hseed,{ from: alice });
+            await this.biglottery.beginLottery(hseed,{ from: dev });
 
             // The new year has started!!
             let purchaseLimit2 = await this.biglottery.purchaseLimit();

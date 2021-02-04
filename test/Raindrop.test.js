@@ -8,7 +8,7 @@ contract('Raindrop', ([alice, bob, carol, dev, minter]) => {
     });
 
     it('should set correct state variables', async () => {
-        this.lottery = await Raindrop.new(this.bamboo.address, 9,{ from: alice });
+        this.lottery = await Raindrop.new(this.bamboo.address,{ from: alice });
         const bamboo = await this.lottery.bamboo();
         const owner = await this.lottery.owner();
         assert.equal(bamboo.toString(), this.bamboo.address);
@@ -16,7 +16,7 @@ contract('Raindrop', ([alice, bob, carol, dev, minter]) => {
     });
 
     it('should allow owner to set variables and start the contract', async () => {
-        this.lottery = await Raindrop.new(this.bamboo.address, 9, { from: alice });
+        this.lottery = await Raindrop.new(this.bamboo.address, { from: alice });
         await this.lottery.setFeeTo(alice);
         // Should not be able to start the contract until ticket price is set
         await expectRevert(this.lottery.startRain({ from: alice }), 'startRain: please set ticket price first');
@@ -33,10 +33,10 @@ contract('Raindrop', ([alice, bob, carol, dev, minter]) => {
 
     context('With the lottery being used', () => {
         beforeEach(async () => {
-            this.lottery = await Raindrop.new(this.bamboo.address, 9,  { from: alice });
-            await this.lottery.setFeeTo(alice);
-            await this.lottery.setTicketPrice('500');
-            await this.lottery.startRain();
+            this.lottery = await Raindrop.new(this.bamboo.address,  { from: dev });
+            await this.lottery.setFeeTo(alice, {from: dev});
+            await this.lottery.setTicketPrice('500', {from: dev});
+            await this.lottery.startRain({from: dev});
             await this.bamboo.mint(bob, '10000');
             await this.bamboo.mint(alice, '10000');
             await this.bamboo.mint(carol, '10000');
@@ -147,11 +147,15 @@ contract('Raindrop', ([alice, bob, carol, dev, minter]) => {
             assert.equal((await this.bamboo.balanceOf(bob)).toString(), '9000');
             assert.equal((await this.bamboo.balanceOf(carol)).toString(), '3500');
 
-            await this.lottery.emergencyStop({ from: alice });
+            await this.lottery.emergencyStop({ from: dev });
+            await this.lottery.refund({ from: alice });
+            await this.lottery.refund({ from: bob });
+            await this.lottery.refund({ from: carol });
 
             assert.equal((await this.bamboo.balanceOf(alice)).toString(), '10000');
             assert.equal((await this.bamboo.balanceOf(bob)).toString(), '10000');
             assert.equal((await this.bamboo.balanceOf(carol)).toString(), '10000');
+            assert.equal((await this.bamboo.balanceOf(this.lottery.address)).toString(), '0');
             assert.equal((await this.lottery.isCloudy()).toString(), 'false');
 
         });

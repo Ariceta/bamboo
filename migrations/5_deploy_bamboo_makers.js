@@ -3,7 +3,7 @@ const BFarmer = artifacts.require("BambooFarmer.sol");
 const Bamboo = artifacts.require('token/BambooToken.sol');
 const UniswapV2Factory = artifacts.require('uniswapv2/UniswapV2Factory.sol');
 const ZooKeeper = artifacts.require('ZooKeeper.sol')
-const WETH = artifacts.require('weth/WETH.sol');
+const WETH = artifacts.require('token/WETH.sol');
 
 
 module.exports = async function (deployer, _network, addresses) {
@@ -43,7 +43,8 @@ module.exports = async function (deployer, _network, addresses) {
         factory.address,
         field.address,
         bamboo.address,
-        weth.address
+        weth.address,
+        addresses[0]
     );
     const farmer = await BFarmer.deployed();
     console.log(farmer.address);

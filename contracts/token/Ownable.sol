@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.6.12;
+pragma solidity ^0.7.0;
 
-import "./Context.sol";
+import "@openzeppelin/contracts/GSN/Context.sol";
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
@@ -10,7 +10,7 @@ import "./Context.sol";
  * specific functions.
  *
  * By default, the owner account will be the one that deploys the contract. This
- * can later be changed with {transferOwnership}.
+ * can later be changed with {proposeOwner/claimOwnership}.
  *
  * This module is used through inheritance. It will make available the modifier
  * `onlyOwner`, which can be applied to your functions to restrict their use to
@@ -28,7 +28,7 @@ contract Ownable is Context {
     /**
      * @dev Initializes the contract setting the deployer as the initial owner.
      */
-    constructor() internal {
+    constructor() {
         address msgSender = _msgSender();
         _owner = msgSender;
         emit OwnershipTransferred(address(0), msgSender);
@@ -75,7 +75,6 @@ contract Ownable is Context {
      * @dev If the address has been proposed, it can accept the ownership,
      * Can only be called by the current proposed owner.
      */
-
     function claimOwnership() public {
         require(msg.sender == proposedOwner, "ERROR_NOT_PROPOSED_OWNER");
         emit OwnershipTransferred(_owner, proposedOwner);

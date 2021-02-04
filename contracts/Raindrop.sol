@@ -1,7 +1,9 @@
-pragma solidity 0.6.12;
+// SPDX-License-Identifier: MIT
 
+pragma solidity ^0.7.0;
 
-import "./token/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "./token/BambooToken.sol";
 
 
@@ -20,8 +22,9 @@ contract Raindrop is Ownable{
 
     // Info used in case of an emergency refund.
     struct UserInfo{
-        uint256 validLimit;         //Timestamp until these tickets are valid
-        uint256 tickets;            //Number of tickets bought by the user
+        uint256 validLimit;         // Timestamp until these tickets are valid
+        uint256 tickets;            // Number of tickets bought by the user
+        uint256 amountSpent;        // Amount spent on tickets
     }
 
     // Simple flag to check if contract has been started.
@@ -41,7 +44,7 @@ contract Raindrop is Ownable{
     uint256 public price;
 
     // Number of winners (and minimum participants).
-    uint public nwinners;
+    uint public constant nwinners = 9;
 
     // The winners of the last lottery.
     address[] private lastWinners;
@@ -59,47 +62,50 @@ contract Raindrop is Ownable{
     uint256 internal constant maskFirst248Bits = uint256(~0xff);
     uint256 private _targetBlock;
     bool public commited;
+    bool public refundPeriod;
 
     event TicketsPurchased(address indexed user, uint256 ntickets);
     event NewRain(uint256 nextRain);
     event TicketPriceSet(uint256 price);
     event Commit(uint256 targetBlock);
 
-    constructor(BambooToken _bamboo, uint _winners) public {
+    constructor(BambooToken _bamboo) {
         bamboo = _bamboo;
-        nwinners = _winners;
         isCloudy = false;
+        refundPeriod = false;
     }
 
     // Purchase tickets for the lottery. The bamboo should be approved beforehand.
-    function buyTickets(uint _ntickets) public
-    {
+    function buyTickets(uint _ntickets) public {
+        require(msg.sender != owner(), "buyTickets: owner cannot participate");
         require(isCloudy, "buyTickets: lottery has not started yet");
         require(block.timestamp<=nextRain, "buyTickets: period of buying tickets ended");
         require(_ntickets >0, "buyTickets: invalid number of tickets!");
         uint256 balance = bamboo.balanceOf(msg.sender);
         require(balance >=price.mul(_ntickets), "buyTickets: not enough bamboo!");
 
+        uint256 cost = price.mul(_ntickets);
+        IERC20(bamboo).safeTransferFrom(address(msg.sender), address(this), cost);
+        prizePool = prizePool.add(cost);
+        registerTicket(msg.sender, _ntickets);
         for(uint i=0; i<_ntickets; i++)
         {
-            IERC20(bamboo).safeTransferFrom(address(msg.sender), address(this), price);
             participants.push(msg.sender);
-            prizePool = prizePool.add(price);
-            registerTicket(msg.sender);
         }
         emit TicketsPurchased(msg.sender, _ntickets);
     }
 
     // Register ticket of current lottery in case of a refund.
-    function registerTicket(address _addr) internal{
+    function registerTicket(address _addr, uint _ntickets) internal {
         UserInfo storage user = ticketHolders[_addr];
         if(user.validLimit != nextRain) {
             user.validLimit = nextRain;
-            user.tickets = 1;
+            user.tickets = _ntickets;
         }
         else{
-            user.tickets +=1;
+            user.tickets += _ntickets;
         }
+        user.amountSpent += price.mul(_ntickets);
     }
 
     // Stop the ticket sell and prepare the variables.
@@ -107,12 +113,11 @@ contract Raindrop is Ownable{
         require(isCloudy, "commit: lottery has not started yet");
         require(block.timestamp>nextRain , "commit: period of buying tickets still up!");
         require(!commited, "commit: this raindrop has already been commited");
-
-        // If there are not enough participants, restart the lottery.
+        // If there are not enough participants, add 1 week.
         if(participants.length < nwinners){
-            refund();
-            nextRain = block.timestamp.add(864000);
+            nextRain = block.timestamp.add(7 days);
             emit NewRain(nextRain);
+            updateTickets();
         }
         else{
             _targetBlock = block.number + 1;
@@ -121,17 +126,16 @@ contract Raindrop is Ownable{
         }
     }
     // Choose the winner. This call could be expensive, so the Bamboo team will be calling it every endRain day.
-    function drawWinners() public
-    {
+    function drawWinners() public {
         require(isCloudy, "drawWinners: lottery has not started yet");
         require(block.timestamp>nextRain , "drawWinners: period of buying tickets still up!");
         require(commited, "drawWinners: this raindrop has not been commited yet");
         // We will use the blockhash of the next n blocks to choose the n winners.
         require(block.number > _targetBlock + nwinners, "drawWinners: please wait for some more blocks to pass");
-        uint256 prize = prizePool.mul(10).div(100);
+        uint256 prize = prizePool.div(10);
         uint256[] memory randomNums = new uint256[](nwinners);
 
-        for(uint i=0; i<nwinners; ++i){
+        for(uint i=0; i<nwinners; ++i) {
             uint256 targetBlock = _targetBlock + i;
             // Try to grab the hash of the "target block". This should be available the vast
             // majority of the time (it will only fail if no-one calls drawWinner() within 256
@@ -179,42 +183,50 @@ contract Raindrop is Ownable{
             IERC20(bamboo).safeTransfer(lastWinners[i], prize);
         }
         IERC20(bamboo).safeTransfer(feeTo, prize);
-        nextRain = block.timestamp.add(864000);
+        nextRain = block.timestamp.add(10 days);
         emit NewRain(nextRain);
-        // Burn any residual bamboo.
-        uint256 contractBalance = bamboo.balanceOf(address(this));
-        if (contractBalance > 0) {
-            bamboo.burn(contractBalance);
-        }
     }
 
     // Get the winners of the last lottery.
-    function getLastWinners() public view returns(address[] memory){
+    function getLastWinners() public view returns(address[] memory) {
         return lastWinners;
     }
 
-    // Stops the contract and refunds the tickets of current participants.
-    function emergencyStop() public onlyOwner{
+    // Stops the contract and allows users to call for refunds
+    function emergencyStop() public onlyOwner {
         delete(isCloudy);
         delete(commited);
         delete(_targetBlock);
-        refund();
         delete(nextRain);
+        delete(prizePool);
+        delete(participants);
+        refundPeriod = true;
     }
 
-    function refund() internal{
-        delete(prizePool);
-        for (uint i=0; i<participants.length; i++){
-            if (ticketHolders[participants[i]].validLimit == nextRain) {
-                IERC20(bamboo).safeTransfer(participants[i], price.mul(ticketHolders[participants[i]].tickets));
-                delete(ticketHolders[participants[i]]);
+    // In emergencies, allows users to refund tickets.
+    function refund() public {
+        require(refundPeriod, 'refund: can only refund on emergency stop');
+        UserInfo storage user = ticketHolders[msg.sender];
+        require(user.amountSpent > 0, 'refund: nothing to refund');
+        uint256 amount = user.amountSpent;
+        IERC20(bamboo).safeTransfer(msg.sender, amount);
+        delete(ticketHolders[msg.sender]);
+    }
+
+    // This function is called when there is less than minimum participants. No require needed
+    function updateTickets() internal {
+        address last;
+        for(uint i=0; i<participants.length; i++) {
+            address current = participants[i];
+            if (current != last){
+                ticketHolders[current].validLimit = nextRain;
             }
+            last = current;
         }
-        delete(participants);
     }
 
     // A simple function that returns the number of tickets from a user.
-    function getTickets(address _user) external view returns (uint256){
+    function getTickets(address _user) external view returns (uint256) {
         if(ticketHolders[_user].validLimit == nextRain){
             return ticketHolders[_user].tickets;
         }
@@ -224,21 +236,24 @@ contract Raindrop is Ownable{
     }
 
     // Allows the owner to start the contract. After this call, the contract doesn't need the owner anymore to work.
-    function startRain() public onlyOwner{
+    function startRain() public onlyOwner {
         require(!isCloudy, "startRain: contract already started");
         require(price>0, "startRain: please set ticket price first");
-        nextRain = block.timestamp.add(864000);
+        nextRain = block.timestamp.add(10 days);
         isCloudy = true;
+        refundPeriod = false;
         emit NewRain(nextRain);
     }
 
     // Sets the address that will receive the commission from the lottery.
-    function setFeeTo(address _feeTo) external onlyOwner{
+    function setFeeTo(address _feeTo) external onlyOwner {
         feeTo = _feeTo;
     }
 
     // Sets the ticket price.
-    function setTicketPrice(uint256 _amount) external onlyOwner{
+    function setTicketPrice(uint256 _amount) external onlyOwner {
+        require(_amount > 0, "setTicketPrice: invalid amount");
+        require(!isCloudy, "setTicketPrice: raindrop already started");
         price = _amount;
         emit TicketPriceSet(price);
     }

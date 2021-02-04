@@ -1,7 +1,9 @@
-pragma solidity 0.6.12;
+// SPDX-License-Identifier: MIT
 
+pragma solidity ^0.7.0;
 
-import "./token/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import "./token/BambooToken.sol";
 import "./BambooField.sol";
@@ -32,15 +34,17 @@ contract ZooKeeper is Ownable {
 
     // Total time rewards
     uint256 public constant TIME_REWARDS_LENGTH = 12;
+
     // Lock times available in seconds for 1 day, 7 days, 15 days, 30 days, 60 days, 90 days, 180 days, 1 year, 2 years, 3 years, 4 years, 5 years
-    uint256[12] public timeRewards = [86400, 604800, 1296000, 2592000, 5184000, 7776000, 15550000, 31540000, 63070000, 94610000, 126100000, 157700000];
+    uint256[TIME_REWARDS_LENGTH] public timeRewards = [1 days, 7 days, 15 days, 30 days, 60 days, 90 days, 180 days, 365 days, 730 days, 1095 days, 1460 days, 1825 days];
     // Lock times saved in a map, for quick validation
-    mapping (uint256 => bool) public validTimeRewards;
+    mapping(uint256 => bool) public validTimeRewards;
 
     // Info of each user.
     struct  LpUserInfo {
-        uint256 amount;     // How many LP tokens the user has provided.
-        uint256 rewardDebt; // Reward debt. See explanation below.
+        uint256 amount;         // How many LP tokens the user has provided.
+        uint256 rewardDebt;     // Reward debt. See explanation below.
+        uint256 lastLpDeposit;   // Last time user made a deposit
         //
         // We do some fancy math here. Basically, any point in time, the amount of BAMBOOs
         // entitled to a user but is pending to be distributed is:
@@ -64,9 +68,10 @@ contract ZooKeeper is Ownable {
     }
 
     struct BambooUserInfo {
-        mapping (uint256 => BambooDeposit) deposits;    // Deposits from the user.
+        mapping(uint256 => BambooDeposit) deposits;    // Deposits from the user.
         uint256[] ids;                                  // Active deposits from the user.
         uint256 totalAmount;                            // Total amount of active deposits from the user.
+        uint256 lastDeposit;                            // Timestamp of last deposit from user
     }
 
     struct StakeMultiplierInfo {
@@ -89,8 +94,6 @@ contract ZooKeeper is Ownable {
 
     // The BAMBOO TOKEN
     BambooToken public bamboo;
-    // Dev address.
-    address public devaddr;
     // BAMBOO tokens created per block.
     uint256 public bambooPerBlock;
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
@@ -99,24 +102,25 @@ contract ZooKeeper is Ownable {
     BambooField public bambooField;
     // If the BambooField is activated. Can be turned off by owner
     bool public isField;
-
-
     // Info of each pool.
     PoolInfo[] public poolInfo;
     // Info of each user that stakes LP tokens.
-    mapping (uint256 => mapping (address => LpUserInfo)) public userInfo;
+    mapping(uint256 => mapping (address => LpUserInfo)) public userInfo;
     // Info of the additional multipliers for BAMBOO staking
-    mapping (uint256 => StakeMultiplierInfo) public stakeMultipliers;
+    mapping(uint256 => StakeMultiplierInfo) public stakeMultipliers;
     // Info of the multipliers available for YieldFarming + staking
-    mapping (uint256 => YieldMultiplierInfo) public yieldMultipliers;
+    mapping(uint256 => YieldMultiplierInfo) public yieldMultipliers;
     // Amounts registered for yield multipliers
     uint256[] public yieldAmounts;
     // Info of each user that stakes BAMBOO.
-    mapping (address => BambooUserInfo) public bambooUserInfo;
+    mapping(address => BambooUserInfo) public bambooUserInfo;
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
     // The block number when BAMBOO mining starts.
     uint256 public startBlock;
+    // Min time of stake and yield for multiplier rewards
+    uint256 public minYieldTime = 7 days;
+    uint256 public minStakeTime = 1 days;
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
     event BAMBOODeposit(address indexed user, uint256 amount, uint256 lockTime, uint256 id);
@@ -125,14 +129,14 @@ contract ZooKeeper is Ownable {
     event BAMBOOBonusWithdraw(address indexed user, uint256 indexed pid, uint256 amount, uint256 ndays);
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
-    constructor(
-        BambooToken _bamboo,
-        address _devaddr,
-        uint256 _bambooPerBlock,
-        uint256 _startBlock
-    ) public {
+    modifier onlyEOA() {
+        require(msg.sender == tx.origin, "ZooKeeper: must use EOA");
+        _;
+    }
+
+    constructor(BambooToken _bamboo, uint256 _bambooPerBlock, uint256 _startBlock) {
+        require(_bambooPerBlock > 0, "invalid bamboo per block");
         bamboo = _bamboo;
-        devaddr = _devaddr;
         bambooPerBlock = _bambooPerBlock;
         startBlock = _startBlock;
         for(uint i=0; i<TIME_REWARDS_LENGTH; i++) {
@@ -140,32 +144,24 @@ contract ZooKeeper is Ownable {
         }
     }
 
-    function poolLength() external view returns (uint256) {
-        return poolInfo.length;
-    }
 
     // Add a new lp to the pool. Can only be called by the owner.
-    // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do.
-    function add(uint256 _allocPoint, IERC20 _lpToken, bool _withUpdate) public onlyOwner {
-        if (_withUpdate) {
-            massUpdatePools();
-        }
-        checkPoolDuplicate ( _lpToken );
+    function add(uint256 _allocPoint, IERC20 _lpToken) public onlyOwner {
+        massUpdatePools();
+        checkPoolDuplicate(_lpToken);
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         poolInfo.push(PoolInfo({
-        lpToken: _lpToken,
-        allocPoint: _allocPoint,
-        lastRewardBlock: lastRewardBlock,
-        accBambooPerShare: 0
+            lpToken: _lpToken,
+            allocPoint: _allocPoint,
+            lastRewardBlock: lastRewardBlock,
+            accBambooPerShare: 0
         }));
     }
 
     // Update the given pool's BAMBOO allocation point. Can only be called by the owner.
-    function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
-        if (_withUpdate) {
-            massUpdatePools();
-        }
+    function set(uint256 _pid, uint256 _allocPoint) public onlyOwner {
+        massUpdatePools();
         totalAllocPoint = totalAllocPoint.sub(poolInfo[_pid].allocPoint).add(_allocPoint);
         poolInfo[_pid].allocPoint = _allocPoint;
     }
@@ -175,8 +171,8 @@ contract ZooKeeper is Ownable {
         migrator = _migrator;
     }
 
-    // Migrate lp token to another lp contract. Can be called by anyone. We trust that migrator contract is good.
-    function migrate(uint256 _pid) public {
+    // Migrate lp token to another lp contract. We trust that migrator contract is correct.
+    function migrate(uint256 _pid) public onlyOwner {
         require(address(migrator) != address(0), "migrate: no migrator");
         PoolInfo storage pool = poolInfo[_pid];
         IERC20 lpToken = pool.lpToken;
@@ -189,25 +185,54 @@ contract ZooKeeper is Ownable {
 
 
     // BambooDeFi setup
-
     // Add a new row of bamboo staking rewards. E.G. 500 (bamboos) -> [10001 (x1.0001*10000), ... ].
     // Adding an existing amount will repace it. Can only be called by the owner.
-    function addStakeMultiplier(uint256 _amount, uint256[TIME_REWARDS_LENGTH] memory _multiplierBonuses ) public onlyOwner {
+    function addStakeMultiplier(uint256 _amount, uint256[TIME_REWARDS_LENGTH] memory _multiplierBonuses) public onlyOwner {
+        require(_amount > 0, "addStakeMultiplier: invalid amount");
+        // Validate that multipliers are valid
+        for(uint i=0; i<TIME_REWARDS_LENGTH; i++){
+            require(_multiplierBonuses[i] >= 10000, "addStakeMultiplier: invalid multiplier array");
+        }
         uint mLength = _multiplierBonuses.length;
         require(mLength== TIME_REWARDS_LENGTH, "addStakeMultiplier: invalid array length");
         StakeMultiplierInfo memory mInfo = StakeMultiplierInfo({multiplierBonus: _multiplierBonuses, registered:true});
         stakeMultipliers[_amount] = mInfo;
     }
 
-    // Add a new amount for yield farimng rewards. E.G. 500 (bamboos) -> 10001 (x1.0001*10000). Adding an existing amount will repace it.
+
+    // Add a new amount for yield farming rewards. E.G. 500 (bamboos) -> 10001 (x1.0001*10000). Adding an existing amount will replace it.
     // Can only be called by the owner.
     function addYieldMultiplier(uint256 _amount, uint256 _multiplierBonus ) public onlyOwner {
-        yieldAmounts.push(_amount);
+        require(_amount > 0, "addYieldMultiplier: invalid amount");
+        // 10000 is a x1 multiplier.
+        require(_multiplierBonus >= 10000, "addYieldMultiplier: invalid multiplier");
+        if(!yieldMultipliers[_amount].registered){
+            yieldAmounts.push(_amount);
+        }
         YieldMultiplierInfo memory mInfo = YieldMultiplierInfo({multiplier: _multiplierBonus, registered:true});
         yieldMultipliers[_amount] = mInfo;
     }
 
-    // Callable functions for data visualization
+    // Remove. Will not affect current deposits, since rewards are calculated at deposit time.
+    function removeStakeMultiplier(uint256 _amount) public onlyOwner {
+        require(stakeMultipliers[_amount].registered, "removeStakeMultiplier: nothing to remove");
+        delete(stakeMultipliers[_amount]);
+    }
+
+    // Remove yieldMultiplier.
+    function removeYieldMultiplier(uint256 _amount) public onlyOwner {
+        require(yieldMultipliers[_amount].registered, "removeYieldMultiplier: nothing to remove");
+        // Find index
+        for(uint i=0; i<yieldAmounts.length; i++) {
+            if(yieldAmounts[i] == _amount){
+                // Remove
+                yieldAmounts[i] = yieldAmounts[yieldAmounts.length -1];
+                yieldAmounts.pop();
+                break;
+            }
+        }
+        delete(yieldMultipliers[_amount]);
+    }
 
     // Return reward multiplier over the given the time spent staking and the amount locked
     function getStakingMultiplier(uint256 _time, uint256 _amount) public view returns (uint256) {
@@ -241,10 +266,26 @@ contract ZooKeeper is Ownable {
 
     // Returns the deposit amount and the minimum timestamp where the deposit can be withdrawn.
     function getDepositInfo(address _user, uint256 _id) public view returns (uint256, uint256) {
-        BambooDeposit storage deposit = bambooUserInfo[_user].deposits[_id];
-        require(deposit.active, "deposit does not exist");
-        return (deposit.amount, _id.add(deposit.lockTime));
+        BambooDeposit storage _deposit = bambooUserInfo[_user].deposits[_id];
+        require(_deposit.active, "deposit does not exist");
+        return (_deposit.amount, _id.add(_deposit.lockTime));
     }
+
+    // Returns amount of stake rewards available to claim, and the days that are being accounted.
+    function getClaimableBamboo(uint256 _id, address _addr ) public view returns(uint256, uint256) {
+        BambooUserInfo storage user = bambooUserInfo[_addr];
+        // If it's the last withdraw
+        if(block.timestamp >= _id.add(user.deposits[_id].lockTime) ){
+            uint pastdays = user.deposits[_id].lastTime.sub(_id).div(1 days);
+            uint256 leftToClaim = user.deposits[_id].totalReward.sub(pastdays.mul(user.deposits[_id].dailyReward));
+            return (leftToClaim, (user.deposits[_id].lockTime.div(1 days)).sub(pastdays));
+        }
+        else{
+            uint256 ndays = (block.timestamp.sub(user.deposits[_id].lastTime)).div(1 days);
+            return (ndays.mul(user.deposits[_id].dailyReward), ndays);
+        }
+    }
+
 
     // View function to see pending BAMBOOs on frontend.
     function pendingBamboo(uint256 _pid, address _user) external view returns (uint256) {
@@ -253,7 +294,10 @@ contract ZooKeeper is Ownable {
         uint256 bambooUserAmount = bambooUserInfo[_user].totalAmount;
         uint256 accBambooPerShare = pool.accBambooPerShare;
         uint256 lpSupply = pool.lpToken.balanceOf(address(this));
-        uint256 yMultiplier = getYieldMultiplier(bambooUserAmount);
+        uint256 yMultiplier = 10000;
+        if (block.timestamp - user.lastLpDeposit > minYieldTime && block.timestamp - bambooUserInfo[_user].lastDeposit > minStakeTime) {
+            yMultiplier = getYieldMultiplier(bambooUserAmount);
+        }
         if (block.number > pool.lastRewardBlock && lpSupply != 0) {
             uint256 multiplier = block.number.sub(pool.lastRewardBlock);
             uint256 bambooReward = multiplier.mul(bambooPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
@@ -265,7 +309,7 @@ contract ZooKeeper is Ownable {
 
     // View function to see pending BAMBOOS to claim on staking. Returns total amount of pending bamboo to claim in the future,
     // and the amount available to claim at the moment.
-    function pendingStakeBamboo(uint256 _id, address _addr) public view returns (uint256, uint256) {
+    function pendingStakeBamboo(uint256 _id, address _addr) external view returns (uint256, uint256) {
         BambooUserInfo storage user = bambooUserInfo[_addr];
         require(user.deposits[_id].active, "pendingStakeBamboo: invalid id");
         uint256 claimable;
@@ -275,7 +319,7 @@ contract ZooKeeper is Ownable {
             return (claimable, claimable);
         }
         else{
-            uint pastdays = user.deposits[_id].lastTime.sub(_id).div(86400);
+            uint pastdays = user.deposits[_id].lastTime.sub(_id).div(1 days);
             uint256 leftToClaim = user.deposits[_id].totalReward.sub(pastdays.mul(user.deposits[_id].dailyReward));
             return (leftToClaim, claimable);
         }
@@ -308,33 +352,34 @@ contract ZooKeeper is Ownable {
     }
 
     // Deposit Functions
-
     // Deposit LP tokens to ZooKeeper for BAMBOO allocation.
-    function deposit(uint256 _pid, uint256 _amount) public {
+    function deposit(uint256 _pid, uint256 _amount) public onlyEOA {
         require ( _pid < poolInfo.length , "deposit: pool exists?");
         PoolInfo storage pool = poolInfo[_pid];
         LpUserInfo storage user = userInfo[_pid][msg.sender];
         uint256 bambooUserAmount = bambooUserInfo[msg.sender].totalAmount;
         updatePool(_pid);
         if (user.amount > 0) {
-            uint256 multiplier = getYieldMultiplier(bambooUserAmount);
+            // Allocate how much bamboo corresponds to user
             uint256 pending = user.amount.mul(pool.accBambooPerShare).div(1e12).sub(user.rewardDebt);
-            uint256 finalPending = multiplier.mul(pending).div(10000);
-            if(finalPending > 0) {
-                bamboo.mint(address(this), finalPending.sub(pending));
-                safeBambooTransfer(msg.sender, finalPending);
+            // If user has pending rewards from previous blocks
+            if (pending > 0) {
+                uint256 bonus = mintBonusBamboo(pending, user.lastLpDeposit, bambooUserInfo[msg.sender].lastDeposit, bambooUserAmount);
+                safeBambooTransfer(msg.sender, pending.add(bonus));
             }
         }
+        // Now take care of the new deposit
         if(_amount > 0) {
             pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
             user.amount = user.amount.add(_amount);
+            user.lastLpDeposit = block.timestamp;
         }
         user.rewardDebt = user.amount.mul(pool.accBambooPerShare).div(1e12);
         emit Deposit(msg.sender, _pid, _amount);
     }
 
     // Deposit Bamboo to ZooKeeper for additional staking rewards. Bamboos should be approved
-    function depositBamboo(uint256 _amount, uint256 _lockTime) public{
+    function depositBamboo(uint256 _amount, uint256 _lockTime) public onlyEOA {
         require(stakeMultipliers[_amount].registered, "depositBamboo: invalid amount");
         require(validTimeRewards[_lockTime] , "depositBamboo: invalid lockTime");
         BambooUserInfo storage user = bambooUserInfo[msg.sender];
@@ -344,18 +389,19 @@ contract ZooKeeper is Ownable {
             // Calculate the final rewards
             uint256 multiplier = getStakingMultiplier(_lockTime, _amount);
             uint256 pending = (multiplier.mul(_amount).div(10000)).sub(_amount);
-            uint totaldays = _lockTime / 86400;
+            uint totaldays = _lockTime / 1 days;
             BambooDeposit memory depositData = BambooDeposit({
-            amount: _amount,
-            lockTime: _lockTime,
-            active: true,
-            totalReward:pending,
-            dailyReward:pending.div(totaldays),
-            lastTime: block.timestamp
+                amount: _amount,
+                lockTime: _lockTime,
+                active: true,
+                totalReward:pending,
+                dailyReward:pending.div(totaldays),
+                lastTime: block.timestamp
             });
             user.ids.push(block.timestamp);
             user.deposits[block.timestamp] = depositData;
             user.totalAmount = user.totalAmount.add(_amount);
+            user.lastDeposit = block.timestamp;
         }
         emit BAMBOODeposit(msg.sender, _amount, _lockTime, block.timestamp);
     }
@@ -363,18 +409,16 @@ contract ZooKeeper is Ownable {
     // Withdraw Functions
 
     // Withdraw LP tokens from ZooKeeper.
-    function withdraw(uint256 _pid, uint256 _amount) public {
+    function withdraw(uint256 _pid, uint256 _amount) public onlyEOA {
         PoolInfo storage pool = poolInfo[_pid];
         LpUserInfo storage user = userInfo[_pid][msg.sender];
         uint256 bambooUserAmount = bambooUserInfo[msg.sender].totalAmount;
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
-        uint256 multiplier = getYieldMultiplier(bambooUserAmount);
         uint256 pending = user.amount.mul(pool.accBambooPerShare).div(1e12).sub(user.rewardDebt);
-        uint256 finalPending = multiplier.mul(pending).div(10000);
-        if(finalPending > 0) {
-            bamboo.mint(address(this), finalPending.sub(pending));
-            safeBambooTransfer(msg.sender, finalPending);
+        if(pending > 0) {
+            uint256 bonus = mintBonusBamboo(pending, user.lastLpDeposit, bambooUserInfo[msg.sender].lastDeposit, bambooUserAmount);
+            safeBambooTransfer(msg.sender, pending.add(bonus));
         }
         if(_amount > 0){
             user.amount = user.amount.sub(_amount);
@@ -391,7 +435,7 @@ contract ZooKeeper is Ownable {
     }
 
     // Withdraw a Bamboo deposit from ZooKeeper.
-    function withdrawBamboo(uint256 _depositId) public {
+    function withdrawBamboo(uint256 _depositId) public onlyEOA {
         BambooUserInfo storage user = bambooUserInfo[msg.sender];
         require(user.deposits[_depositId].active, "withdrawBamboo: invalid id");
         uint256 depositEnd = _depositId.add(user.deposits[_depositId].lockTime) ;
@@ -418,35 +462,34 @@ contract ZooKeeper is Ownable {
     }
 
     // Withdraw the bonus staking Bamboo available from this deposit.
-    function withdrawDailyBamboo(uint256 _depositId) public {
+    function withdrawDailyBamboo(uint256 _depositId) public onlyEOA {
         BambooUserInfo storage user = bambooUserInfo[msg.sender];
         require(user.deposits[_depositId].active, "withdrawDailyBamboo: invalid id");
         uint256 depositEnd = _depositId.add(user.deposits[_depositId].lockTime);
         uint256 amount;
         uint256 ndays;
         (amount, ndays) = getClaimableBamboo(_depositId, msg.sender);
-        uint256 newLastTime =  user.deposits[_depositId].lastTime.add(ndays.mul(86400));
+        uint256 newLastTime =  user.deposits[_depositId].lastTime.add(ndays.mul(1 days));
         assert(newLastTime <= depositEnd);
         user.deposits[_depositId].lastTime =  newLastTime;
         // Mint the bonus bamboo
-        bamboo.mint(address(this), amount);
-        safeBambooTransfer(msg.sender, amount);
+        bamboo.mint(msg.sender, amount);
         emit BAMBOOBonusWithdraw(msg.sender, _depositId, amount, ndays);
     }
 
-    // Returns amount of stake rewards available to claim, and the days that are being accounted.
-    function getClaimableBamboo(uint256 _id, address _addr ) public view returns(uint256, uint256) {
-        BambooUserInfo storage user = bambooUserInfo[_addr];
-        // If it's the last withdraw
-        if(block.timestamp >= _id.add(user.deposits[_id].lockTime) ){
-            uint pastdays = user.deposits[_id].lastTime.sub(_id).div(86400);
-            uint256 leftToClaim = user.deposits[_id].totalReward.sub(pastdays.mul(user.deposits[_id].dailyReward));
-            return (leftToClaim, (user.deposits[_id].lockTime.div(86400)).sub(pastdays));
+    function mintBonusBamboo(uint256 pending, uint256 lastLp, uint256 lastStake, uint256 bambooUserAmount) internal returns (uint256) {
+        // Check if user is eligible for a multiplier, depending of last time of lp && bamboo deposit
+        if (block.timestamp - lastLp > minYieldTime && block.timestamp - lastStake > minStakeTime && bambooUserAmount > 0) {
+            uint256 multiplier = getYieldMultiplier(bambooUserAmount);
+            // Pending*multiplier
+            uint256 pmul = multiplier.mul(pending).div(10000);
+            // Bonus BAMBOO from multiplier
+            uint256 bonus = pmul.sub(pending);
+            // Mint the bonus
+            bamboo.mint(address(this), bonus);
+            return bonus;
         }
-        else{
-            uint256 ndays = (block.timestamp.sub(user.deposits[_id].lastTime)).div(86400);
-            return (ndays.mul(user.deposits[_id].dailyReward), ndays);
-        }
+        return 0;
     }
 
     // Withdraw LPs without caring about rewards. EMERGENCY ONLY.
@@ -479,15 +522,15 @@ contract ZooKeeper is Ownable {
     function safeBambooTransfer(address _to, uint256 _amount) internal {
         uint256 bambooBal = bamboo.balanceOf(address(this));
         if (_amount > bambooBal) {
-            bamboo.transfer(_to, bambooBal);
+            IERC20(bamboo).safeTransfer(_to, bambooBal);
         } else {
-            bamboo.transfer(_to, _amount);
+            IERC20(bamboo).safeTransfer(_to, _amount);
         }
     }
 
-    function checkPoolDuplicate ( IERC20 _lpToken ) public view{
-        uint256 length = poolInfo.length ;
-        for ( uint256 pid = 0; pid < length ; ++pid ) {
+    function checkPoolDuplicate (IERC20 _lpToken) public view {
+         uint256 length = poolInfo.length;
+         for(uint256 pid = 0; pid < length ; ++pid) {
             require (poolInfo[pid].lpToken != _lpToken , "add: existing pool?");
         }
     }
@@ -500,14 +543,8 @@ contract ZooKeeper is Ownable {
         return userInfo[_pid][_user].amount;
     }
 
-    // Update dev address by the previous dev.
-    function dev(address _devaddr) public {
-        require(msg.sender == devaddr, "dev: wut?");
-        devaddr = _devaddr;
-    }
-
     // Switch BambooField active.
-    function switchBamboField(BambooField _bf) public onlyOwner{
+    function switchBamboField(BambooField _bf) public onlyOwner {
         if(isField){
             isField = false;
         }
@@ -518,8 +555,20 @@ contract ZooKeeper is Ownable {
     }
 
     // Claim ownership for token
-    function claimToken(address _bambooaddr) public onlyOwner{
-        require(BambooToken(_bambooaddr) == bamboo, "claimToken: invalid address");
+    function claimToken() public onlyOwner {
+        // Bamboo Token should have proposedOwner before this
         bamboo.claimOwnership();
+    }
+
+    // Update minYieldTime ans minStakeTime in seconds. If it's too big, would disable yield bonuses.
+    function minYield(uint256 _yTime, uint256 _sTime) public onlyOwner {
+        minYieldTime = _yTime;
+        minStakeTime = _sTime;
+    }
+
+    // Change bamboo per block. Affects rewards for all users.
+    function changeBambooPerBlock(uint256 _bamboo) public onlyOwner {
+        require(_bamboo > 0, "changeBambooPerBlock: invalid amount");
+        bambooPerBlock = _bamboo;
     }
 }

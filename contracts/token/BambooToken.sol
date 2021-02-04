@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.6.12;
+pragma solidity ^0.7.0;
 
-import "./ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./Ownable.sol";
-import "./SafeMath.sol";
 
 //BambooToken with Governance
 contract BambooToken is ERC20("BambooDeFi", "BAMBOO"), Ownable {
@@ -120,7 +120,7 @@ contract BambooToken is ERC20("BambooDeFi", "BAMBOO"), Ownable {
             nonce == nonces[signatory]++,
             "BAMBOO::delegateBySig: invalid nonce"
         );
-        require(now <= expiry, "BAMBOO::delegateBySig: signature expired");
+        require(block.timestamp <= expiry, "BAMBOO::delegateBySig: signature expired");
         return _delegate(signatory, delegatee);
     }
 

@@ -1,4 +1,6 @@
-pragma solidity 0.6.12;
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
@@ -8,7 +10,8 @@ import "./uniswapv2/interfaces/IUniswapV2Pair.sol";
 import "./uniswapv2/interfaces/IUniswapV2Factory.sol";
 
 
-// This contract trades tokens collected from fees for BAMBOO, and sends them to BambooField.
+// This contract trades tokens collected from fees for BAMBOO, and sends them to BambooField and BambooVault
+// As specified in the whitepaper, this contract collects 0.1% of fees and divides 0.06% for BambooVault and 0.04 for BambooField, that rewards past and present liquidity providers
 
 contract BambooFarmer {
     using SafeMath for uint256;
@@ -18,19 +21,35 @@ contract BambooFarmer {
     address public field;
     address public bamboo;
     address public weth;
+    // The only dev address
+    address public vaultSetter;
+    address public vault;
 
-    constructor(IUniswapV2Factory _factory, address _field, address _bamboo, address _weth) public {
+    constructor(IUniswapV2Factory _factory, address _field, address _bamboo, address _weth, address _vaultSetter) {
         factory = _factory;
         bamboo = _bamboo;
         field = _field;
         weth = _weth;
+        vaultSetter = _vaultSetter;
     }
 
-    function convert(address token0, address token1) public {
-        // At least we try to make front-running harder to do.
-        require(msg.sender == tx.origin, "do not convert from contract");
+    modifier onlyEOA() {
+        // Try to make flash-loan exploit harder to do by only allowing externally owned addresses.
+        require(msg.sender == tx.origin, "must use EOA");
+        _;
+    }
+
+    function convert(address token0, address token1) public onlyEOA{
         IUniswapV2Pair pair = IUniswapV2Pair(factory.getPair(token0, token1));
-        pair.transfer(address(pair), pair.balanceOf(address(this)));
+        uint256 pairBalance = pair.balanceOf(address(this));
+        if (vault != address(0)) {
+            // If vault is set, send 60 to vault 40 to BambooField
+            uint256 amountDev = pairBalance.mul(60).div(100);
+            pairBalance = pairBalance.sub(amountDev);
+            _safeTransfer(address(pair), vault, amountDev);
+        }
+        // Convert the rest to the original tokens
+        pair.transfer(address(pair), pairBalance);
         pair.burn(address(this));
         // First we convert everything to WETH
         uint256 wethAmount = _toWETH(token0) + _toWETH(token1);
@@ -94,5 +113,15 @@ contract BambooFarmer {
     // Wrapper for safeTransfer
     function _safeTransfer(address token, address to, uint256 amount) internal {
         IERC20(token).safeTransfer(to, amount);
+    }
+
+    function setVault(address _vault) external {
+        require(msg.sender == vaultSetter, 'setVault: FORBIDDEN');
+        vault = _vault;
+    }
+
+    function setVaultSetter(address _vaultSetter) external {
+        require(msg.sender == vaultSetter, 'setVault: FORBIDDEN');
+        vaultSetter = _vaultSetter;
     }
 }

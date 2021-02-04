@@ -1,7 +1,8 @@
-pragma solidity >=0.5.0;
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+pragma solidity ^0.7.0;
 
 import '../interfaces/IUniswapV2Pair.sol';
-
 import "./SafeMath.sol";
 
 library UniswapV2Library {
@@ -21,7 +22,7 @@ library UniswapV2Library {
                 hex'ff',
                 factory,
                 keccak256(abi.encodePacked(token0, token1)),
-                hex'797536ac70a6a3dbe6c10b5f9855bce0d2dccce484260e22a85e56a201dfb590' // init code hash
+                hex'2c9ae7ca53313464c145e7ebce6a2fc39695e87d8f3c076547264d27fb3bded2' // init code hash
             ))));
     }
 
@@ -43,6 +44,7 @@ library UniswapV2Library {
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut, uint fee) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
+        require(fee <= 50, 'UniswapV2Library: INVALID_FEE');
         uint amountInWithFee = amountIn.mul(1000-fee);
         uint numerator = amountInWithFee.mul(reserveOut);
         uint denominator = reserveIn.mul(1000).add(amountInWithFee);
@@ -53,6 +55,7 @@ library UniswapV2Library {
     function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut, uint fee) internal pure returns (uint amountIn) {
         require(amountOut > 0, 'UniswapV2Library: INSUFFICIENT_OUTPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
+        require(fee <= 50, 'UniswapV2Library: INVALID_FEE');
         uint numerator = reserveIn.mul(amountOut).mul(1000);
         uint denominator = reserveOut.sub(amountOut).mul(1000-fee);
         amountIn = (numerator / denominator).add(1);

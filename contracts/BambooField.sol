@@ -1,11 +1,15 @@
+// SPDX-License-Identifier: MIT
 
-pragma solidity 0.6.12;
+pragma solidity ^0.7.0;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "./ZooKeeper.sol";
 
 // BambooField allows you to grow your Bamboo! Buy some seeds, and then harvest them for more Bamboo!
 //
-contract BambooField is ERC20("Seed", "SEED"), Ownable{
+contract BambooField is ERC20("Seed", "SEED"), Ownable {
+    using SafeERC20 for IERC20;
     using SafeMath for uint256;
     // Info of each user that can buy seeds.
     mapping (address => FarmUserInfo) public userInfo;
@@ -29,7 +33,7 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
     event RegisterAmountChanged(uint256 amount);
     event StakeTimeChanged(uint256 time);
 
-    constructor(BambooToken _bamboo, ZooKeeper _zoo, uint256 _registerprice, uint256 _minstaketime) public {
+    constructor(BambooToken _bamboo, ZooKeeper _zoo, uint256 _registerprice, uint256 _minstaketime) {
         bamboo= _bamboo;
         zooKeeper = _zoo;
         registerAmount = _registerprice;
@@ -40,12 +44,13 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
     function register(uint _pid, uint256 _amount) public {
         require( _pid < zooKeeper.getPoolLength() , "register: invalid pool");
         require(_amount > registerAmount, "register: amount should be bigger than registerAmount");
+        require(userInfo[msg.sender].amount == 0, "register: already registered");
         // Get the poolId
         uint256 amount = zooKeeper.getLpAmount(_pid, msg.sender);
         require(amount > 0, 'register: no LP on pool');
-        uint256 seedAmount = _amount - registerAmount;
+        uint256 seedAmount = _amount.sub(registerAmount);
         // move the registerAmount
-        bamboo.transferFrom(msg.sender, address(this), registerAmount);
+        IERC20(bamboo).safeTransferFrom(address(msg.sender), address(this), registerAmount);
         depositPool = depositPool.add(registerAmount);
         // save user data
         userInfo[msg.sender] = FarmUserInfo(registerAmount, _pid, block.timestamp, true, 0);
@@ -61,7 +66,7 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
             require(userInfo[msg.sender].endTime >= block.timestamp, "buy: invalid user");
         }
         // Gets the amount of usable BAMBOO locked in the contract
-        uint256 totalBamboo = bamboo.balanceOf(address(this)) - depositPool;
+        uint256 totalBamboo = bamboo.balanceOf(address(this)).sub(depositPool);
         // Gets the amount of Seeds in existence
         uint256 totalShares = totalSupply();
         // If no Seeds exists, mint it 1:1 to the amount put in
@@ -74,7 +79,7 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
             _mint(msg.sender, what);
         }
         // Lock the BAMBOO in the contract
-        bamboo.transferFrom(msg.sender, address(this), _amount);
+        IERC20(bamboo).safeTransferFrom(address(msg.sender), address(this), _amount);
     }
 
     // Harvest your BAMBOO
@@ -84,11 +89,11 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
         require(block.timestamp.sub(userInfo[msg.sender].startTime) >= minStakeTime, "buy: cannot harvest seeds at this time");
         // Gets the amount of Seeds in existence
         uint256 totalShares = totalSupply();
-        uint256 totalBamboo = bamboo.balanceOf(address(this)) - depositPool;
+        uint256 totalBamboo = bamboo.balanceOf(address(this)).sub(depositPool);
         // Calculates the amount of BAMBOO the Seeds are worth
         uint256 what = _share.mul(totalBamboo).div(totalShares);
         _burn(msg.sender, _share);
-        bamboo.transfer(msg.sender, what);
+        IERC20(bamboo).safeTransfer(msg.sender, what);
     }
 
     // Register a staking pool to the user with a collateral payment
@@ -104,12 +109,12 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
         // Reset user data
         delete(userInfo[msg.sender]);
         // Return deposit
-        bamboo.transfer(msg.sender, deposit);
+        IERC20(bamboo).safeTransfer(msg.sender, deposit);
         depositPool = depositPool.sub(deposit);
     }
 
     // This function will be called from ZooKeeper if LP balance is withdrawn
-    function updatePool(address _user) external{
+    function updatePool(address _user) external {
         require(ZooKeeper(msg.sender) == zooKeeper, "updatePool: contract was not ZooKeeper");
         userInfo[_user].active = false;
         // Get 60 days to buy shares if you staked LP at least 60 days
@@ -119,19 +124,19 @@ contract BambooField is ERC20("Seed", "SEED"), Ownable{
     }
 
     // Changes the entry collateral amount.
-    function setRegisterAmount(uint256 _amount) external onlyOwner{
+    function setRegisterAmount(uint256 _amount) external onlyOwner {
         registerAmount = _amount;
         emit RegisterAmountChanged(registerAmount);
     }
 
-    // Changes the min stake time.
-    function setStakeTime(uint256 _mintime) external onlyOwner{
+    // Changes the min stake time in seconds.
+    function setStakeTime(uint256 _mintime) external onlyOwner {
         minStakeTime = _mintime;
         emit StakeTimeChanged(minStakeTime);
     }
 
     // Check if user is active with an specific pool
-    function isActive(address _user, uint _pid) public view returns(bool){
+    function isActive(address _user, uint _pid) public view returns(bool) {
         return userInfo[_user].active && userInfo[_user].poolId == _pid;
     }
 
