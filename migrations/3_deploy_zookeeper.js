@@ -22,7 +22,6 @@ module.exports = async function (deployer, _network, addresses) {
     await deployer.deploy(
         ZooKeeper,
         bamboo.address,
-        addresses[0],
         web3.utils.toWei('100'),
         1
     );
@@ -30,7 +29,7 @@ module.exports = async function (deployer, _network, addresses) {
     console.log(zooKeeper.address);
     // Transfer ownership of BambooDeFi Token to ZooKeeper
     await bamboo.proposeOwner(zooKeeper.address);
-    await zooKeeper.claimToken(bamboo.address);
+    await zooKeeper.claimToken();
 
     console.log("ZooKeeper deployed!")
 
